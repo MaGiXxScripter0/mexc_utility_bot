@@ -357,6 +357,10 @@ class CexAggregatorService:
         if 'bnb' in network_lower and ('smart chain' in network_lower or 'bep20' in network_lower or 'bsc' in network_lower):
             return 'BSC'
 
+        # Polygon/MATIC variations
+        if 'polygon' in network_lower or 'matic' in network_lower:
+            return 'Polygon'
+
         # ETH variations
         if 'eth' in network_lower and ('ethereum' in network_lower or 'erc20' in network_lower):
             return 'ETH'
