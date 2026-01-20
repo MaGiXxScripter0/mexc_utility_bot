@@ -19,9 +19,10 @@ class HttpClient:
     HTTP client wrapper over aiohttp with structured error handling.
     """
 
-    def __init__(self, timeout: float = 15.0, verify_ssl: bool = True):
+    def __init__(self, timeout: float = 15.0, verify_ssl: bool = True, proxy_config: Optional[Dict[str, str]] = None):
         self.timeout = aiohttp.ClientTimeout(total=timeout)
         self.verify_ssl = verify_ssl
+        self.proxy_config = proxy_config
         self._session: Optional[aiohttp.ClientSession] = None
 
     async def __aenter__(self):
@@ -38,6 +39,10 @@ class HttpClient:
             if not self.verify_ssl:
                 connector = aiohttp.TCPConnector(verify_ssl=False)
                 logger.warning("SSL verification disabled for HTTP client")
+
+            # Log proxy configuration if present
+            if self.proxy_config:
+                logger.info(f"HTTP client configured with proxy: {self.proxy_config}")
 
             self._session = aiohttp.ClientSession(
                 timeout=self.timeout,
@@ -79,7 +84,7 @@ class HttpClient:
             if 'User-Agent' not in headers:
                 headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 
-            async with self._session.get(url, params=params, headers=headers) as response:
+            async with self._session.get(url, params=params, headers=headers, proxy=self.proxy_config.get('http') if self.proxy_config else None) as response:
                 response_text = await response.text()
 
                 if response.status != 200:

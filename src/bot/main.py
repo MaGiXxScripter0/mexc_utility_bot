@@ -47,12 +47,15 @@ class DependencyContainer:
         """Initialize all dependencies."""
         logger.info("Initializing dependency container...")
 
+        # Parse proxy configuration
+        proxy_config = self.config.parse_proxy()
+
         # HTTP client (with SSL verification for MEXC)
-        self._http_client = HttpClient(verify_ssl=True)
+        self._http_client = HttpClient(verify_ssl=True, proxy_config=proxy_config)
         await self._http_client.start()
 
         # Gate HTTP client (without SSL verification to handle certificate issues)
-        self._gate_http_client = HttpClient(verify_ssl=False)
+        self._gate_http_client = HttpClient(verify_ssl=False, proxy_config=proxy_config)
         await self._gate_http_client.start()
 
         # Time sync

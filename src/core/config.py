@@ -1,8 +1,12 @@
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Dict, Optional
 
 from dotenv import load_dotenv
+
+from core.logging_config import setup_logging
+
+logger = setup_logging()
 
 
 @dataclass(frozen=True)
@@ -19,6 +23,9 @@ class Config:
     # Gate.io API configuration
     gate_api_key: Optional[str]
     gate_api_secret: Optional[str]
+
+    # Proxy configuration
+    http_proxy: Optional[str]
 
     # API endpoints
     mexc_futures_public: str = "https://contract.mexc.com/api/v1"
@@ -41,12 +48,15 @@ class Config:
         gate_api_key = os.getenv("GATE_API_KEY", "").strip() or None
         gate_api_secret = os.getenv("GATE_API_SECRET", "").strip() or None
 
+        http_proxy = os.getenv("HTTP_PROXY", "").strip() or None
+
         return cls(
             bot_token=bot_token,
             mexc_api_key=mexc_api_key,
             mexc_api_secret=mexc_api_secret,
             gate_api_key=gate_api_key,
             gate_api_secret=gate_api_secret,
+            http_proxy=http_proxy,
         )
 
     @property
@@ -82,3 +92,58 @@ class Config:
     @property
     def mexc_server_time_url(self) -> str:
         return f"{self.mexc_spot}/api/v3/time"
+
+    def get_proxy_url(self) -> Optional[str]:
+        """Get the proxy URL if configured."""
+        return self.http_proxy
+
+    def parse_proxy(self) -> Optional[Dict[str, str]]:
+        """
+        Parse proxy URL into aiohttp format.
+
+        Supports formats:
+        - http://host:port:username:password
+        - http://username:password@host:port
+        - http://host:port
+
+        Returns:
+            Dict with 'http' and 'https' proxy URLs, or None if no proxy
+        """
+        if not self.http_proxy:
+            return None
+
+        try:
+            proxy_url = self.http_proxy.strip()
+
+            # Handle format: http://host:port:username:password
+            if proxy_url.startswith('http://'):
+                parts = proxy_url[7:].split(':')  # Remove 'http://'
+                if len(parts) == 4:
+                    host, port, username, password = parts
+                    proxy_with_auth = f"http://{username}:{password}@{host}:{port}"
+                    return {
+                        'http': proxy_with_auth,
+                        'https': proxy_with_auth
+                    }
+
+            # Handle standard format: http://username:password@host:port
+            elif '@' in proxy_url and proxy_url.startswith('http://'):
+                return {
+                    'http': proxy_url,
+                    'https': proxy_url
+                }
+
+            # Handle format without auth: http://host:port
+            elif proxy_url.startswith('http://') and proxy_url.count(':') == 1:
+                return {
+                    'http': proxy_url,
+                    'https': proxy_url
+                }
+
+            else:
+                logger.warning(f"Unsupported proxy format: {proxy_url}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error parsing proxy URL: {e}")
+            return None
