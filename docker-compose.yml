@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  mexc-bot:
+    build: .
+    container_name: mexc-telegram-bot
+    restart: unless-stopped
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - MEXC_API_KEY=${MEXC_API_KEY}
+      - MEXC_API_SECRET=${MEXC_API_SECRET}
+      - GATE_API_KEY=${GATE_API_KEY}
+      - GATE_API_SECRET=${GATE_API_SECRET}
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - mexc-bot-network
+
+networks:
+  mexc-bot-network:
+    driver: bridge
