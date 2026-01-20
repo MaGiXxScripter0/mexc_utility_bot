@@ -254,9 +254,9 @@ class GateInfoService(BaseMessageBuilder):
             if valid_constituents:
                 lines.append(f"*Index:* {' • '.join(valid_constituents)}")
             else:
-                lines.append("*Index:* 100% Gate.io")
+                lines.append("*Index:* Index data unavailable")
         else:
-            lines.append("*Index:* 100% Gate.io")
+            lines.append("*Index:* Index data unavailable")
         lines.append("")
 
         # Networks & Contracts
