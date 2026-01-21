@@ -63,7 +63,8 @@ class Config:
 
         http_proxy = os.getenv("HTTP_PROXY", "").strip() or None
 
-        # Parse ALERT_CHAT_IDS in format: chat_id[:thread_id], separated by commas
+        # Parse ALERT_CHAT_IDS in format: chat_id[_thread_id] or chat_id:thread_id, separated by commas
+        # Supports both Telegram topic format (chat_id_thread_id) and explicit format (chat_id:thread_id)
         alert_chat_ids_str = os.getenv("ALERT_CHAT_IDS", "-1003321617744").strip()
         alert_chats = []
         for item in alert_chat_ids_str.split(","):
@@ -71,11 +72,27 @@ class Config:
             if not item:
                 continue
 
+            # Check for explicit format: chat_id:thread_id
             if ":" in item:
                 chat_id, thread_id_str = item.split(":", 1)
                 chat_id = chat_id.strip()
                 thread_id = int(thread_id_str.strip())
                 alert_chats.append(AlertChatConfig(chat_id=chat_id, message_thread_id=thread_id))
+            # Check for Telegram topic format: chat_id_thread_id
+            elif "_" in item and item.startswith("-100"):
+                # Find the last underscore to separate chat_id from thread_id
+                last_underscore = item.rfind("_")
+                if last_underscore > 0:
+                    chat_id = item[:last_underscore]
+                    thread_id_str = item[last_underscore + 1:]
+                    try:
+                        thread_id = int(thread_id_str)
+                        alert_chats.append(AlertChatConfig(chat_id=chat_id, message_thread_id=thread_id))
+                    except ValueError:
+                        # If thread_id is not a number, treat as regular chat_id
+                        alert_chats.append(AlertChatConfig(chat_id=item))
+                else:
+                    alert_chats.append(AlertChatConfig(chat_id=item))
             else:
                 alert_chats.append(AlertChatConfig(chat_id=item))
 
