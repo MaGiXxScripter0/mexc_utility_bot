@@ -13,6 +13,7 @@ from infrastructure.gate.dtos import (
 )
 from core.logging_config import setup_logging
 from core.markdown_service import MarkdownService
+from core.utils.network_prefixes import NetworkPrefixUtils
 from .base_message_builder import BaseMessageBuilder
 
 logger = setup_logging()
@@ -277,21 +278,7 @@ class GateInfoService(BaseMessageBuilder):
                 lines.append(f"`{addr}`")
 
                 # Links: [DexScreener]({url}) | [GMGN]({url})
-                network_prefix = "bsc"  # Default
-                gmgn_network = "bsc"
-
-                if "ETH" in net_name or "ERC20" in net_name:
-                    network_prefix = "ethereum"
-                    gmgn_network = "eth"
-                elif "POLYGON" in net_name or "MATIC" in net_name:
-                    network_prefix = "polygon"
-                    gmgn_network = "polygon"
-                elif "ARB" in net_name or "ARBITRUM" in net_name:
-                    network_prefix = "arbitrum"
-                    gmgn_network = "arbitrum"
-
-                dexscreener_url = f"https://dexscreener.com/{network_prefix}/{addr}"
-                gmgn_url = f"https://gmgn.ai/{gmgn_network}/token/{addr}"
+                dexscreener_url, gmgn_url = NetworkPrefixUtils.get_scanner_links(net_name, addr)
 
                 lines.append(f"[DexScreener]({dexscreener_url}) | [GMGN]({gmgn_url})")
                 lines.append("")

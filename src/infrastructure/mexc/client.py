@@ -210,3 +210,5 @@ class MexcClient:
                 return True, "", networks if isinstance(networks, list) else []
 
         return False, f"coin {coin_upper} not found", None
+
+

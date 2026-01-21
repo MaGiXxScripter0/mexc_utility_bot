@@ -27,6 +27,12 @@ class Config:
     # Proxy configuration
     http_proxy: Optional[str]
 
+    # Telegram alert configuration
+    alert_chat_id: str
+
+    # WebSocket configuration
+    mexc_ws_url: str = "wss://contract.mexc.com/edge"
+
     # API endpoints
     mexc_futures_public: str = "https://contract.mexc.com/api/v1"
     mexc_futures_web: str = "https://www.mexc.com/api/platform/futures/api/v1"
@@ -49,6 +55,7 @@ class Config:
         gate_api_secret = os.getenv("GATE_API_SECRET", "").strip() or None
 
         http_proxy = os.getenv("HTTP_PROXY", "").strip() or None
+        alert_chat_id = os.getenv("ALERT_CHAT_ID", "-1003321617744").strip()
 
         return cls(
             bot_token=bot_token,
@@ -57,6 +64,7 @@ class Config:
             gate_api_key=gate_api_key,
             gate_api_secret=gate_api_secret,
             http_proxy=http_proxy,
+            alert_chat_id=alert_chat_id,
         )
 
     @property
@@ -88,6 +96,7 @@ class Config:
     @property
     def wallet_networks_url(self) -> str:
         return f"{self.mexc_spot}/api/v3/capital/config/getall"
+
 
     @property
     def mexc_server_time_url(self) -> str:

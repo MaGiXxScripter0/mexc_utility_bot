@@ -15,6 +15,8 @@ from infrastructure.mexc.dtos import (
 from core.logging_config import setup_logging
 from .base_message_builder import BaseMessageBuilder
 from core.markdown_service import MarkdownService
+from core.utils.network_prefixes import NetworkPrefixUtils
+from core.utils import BuyLimitCalculator
 
 logger = setup_logging()
 
@@ -104,10 +106,18 @@ class MexcInfoService(BaseMessageBuilder):
         idxw_result = api_results[1]
         ft_result = api_results[2]
 
-        # Process results
-        ok_contract, err_contract, contract = contract_result
-        ok_idxw, err_idxw, idxw = idxw_result
-        ok_ft, err_ft, ft = ft_result
+        # Process results with exception handling
+        def safe_unpack(result, name: str):
+            if isinstance(result, Exception):
+                return False, f"Exception: {str(result)}", None
+            elif isinstance(result, tuple) and len(result) == 3:
+                return result
+            else:
+                return False, f"Invalid result format for {name}", None
+
+        ok_contract, err_contract, contract = safe_unpack(contract_result, "contract")
+        ok_idxw, err_idxw, idxw = safe_unpack(idxw_result, "index weights")
+        ok_ft, err_ft, ft = safe_unpack(ft_result, "futures ticker")
 
         # Collect errors
         if not ok_contract and err_contract:
@@ -194,6 +204,16 @@ class MexcInfoService(BaseMessageBuilder):
             # 24h line
             lines.append(self._build_volume_line(volume_formatted, amount_formatted))
             lines.append("")
+
+            # Buy Limit: calculate maximum USD that can be spent
+            raw_last_price = ft.get('lastPrice')
+            try:
+                token_price = float(raw_last_price) if raw_last_price else 0.0
+            except (ValueError, TypeError):
+                token_price = 0.0
+            buy_limit_info = BuyLimitCalculator.calculate_buy_limit_from_data(contract, token_price)
+            lines.append(f"*Buy Limit:* {buy_limit_info}")
+            lines.append("")
         else:
             lines.append("Нет данных о фьючерсах")
             lines.append("")
@@ -237,21 +257,7 @@ class MexcInfoService(BaseMessageBuilder):
                 lines.append(f"`{addr}`")
 
                 # Links: [DexScreener]({url}) | [GMGN]({url})
-                network_prefix = "bsc"  # Default
-                gmgn_network = "bsc"
-
-                if "ETH" in net_name or "ERC20" in net_name:
-                    network_prefix = "ethereum"
-                    gmgn_network = "eth"
-                elif "POLYGON" in net_name or "MATIC" in net_name:
-                    network_prefix = "polygon"
-                    gmgn_network = "polygon"
-                elif "ARB" in net_name or "ARBITRUM" in net_name:
-                    network_prefix = "arbitrum"
-                    gmgn_network = "arbitrum"
-
-                dexscreener_url = f"https://dexscreener.com/{network_prefix}/{addr}"
-                gmgn_url = f"https://gmgn.ai/{gmgn_network}/token/{addr}"
+                dexscreener_url, gmgn_url = NetworkPrefixUtils.get_scanner_links(net_name, addr)
 
                 lines.append(f"[DexScreener]({dexscreener_url}) \\| [GMGN]({gmgn_url})")
                 lines.append("")

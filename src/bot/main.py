@@ -14,9 +14,10 @@ from core.markdown_service import MarkdownService
 from infrastructure.http_client import HttpClient
 from infrastructure.mexc.client import MexcClient, MexcTimeSync
 from infrastructure.gate.client import GateClient
-from application.services.cex_info_service import MexcInfoService
-from application.services.gate_info_service import GateInfoService
-from application.services.cex_aggregator_service import CexAggregatorService
+from src.application.services.mexc_info_service import MexcInfoService
+from src.application.services.gate_info_service import GateInfoService
+from src.application.services.cex_aggregator_service import CexAggregatorService
+from src.application.services.fair_price_alert_service import FairPriceAlertService
 
 from aiogram.enums import ChatType
 from aiogram.filters import Command
@@ -42,6 +43,7 @@ class DependencyContainer:
         self._gate_service: GateInfoService | None = None
         self._cex_aggregator_service: CexAggregatorService | None = None
         self._markdown_service: MarkdownService | None = None
+        self._fair_price_alert_service: FairPriceAlertService | None = None
 
     async def start(self) -> None:
         """Initialize all dependencies."""
@@ -82,11 +84,17 @@ class DependencyContainer:
             self._mexc_client, self._gate_client, self._http_client, self._markdown_service
         )
 
+        # Fair price alert service
+        self._fair_price_alert_service = FairPriceAlertService(self.config, self._markdown_service, self._mexc_client)
+
         logger.info("Dependency container initialized successfully")
 
     async def close(self) -> None:
         """Clean up all dependencies."""
         logger.info("Closing dependency container...")
+
+        if self._fair_price_alert_service:
+            await self._fair_price_alert_service.stop()
 
         if self._http_client:
             await self._http_client.close()
@@ -123,6 +131,13 @@ class DependencyContainer:
         if self._markdown_service is None:
             raise RuntimeError("Dependency container not initialized")
         return self._markdown_service
+
+    @property
+    def fair_price_alert_service(self) -> FairPriceAlertService:
+        """Get fair price alert service."""
+        if self._fair_price_alert_service is None:
+            raise RuntimeError("Dependency container not initialized")
+        return self._fair_price_alert_service
 
 
 @asynccontextmanager
@@ -198,6 +213,20 @@ async def time_sync_loop(container: DependencyContainer) -> None:
             )
 
 
+async def fair_price_monitor_loop(container: DependencyContainer) -> None:
+    """Background task for fair price monitoring."""
+    try:
+        # Start the fair price alert service
+        alert_service = container.fair_price_alert_service
+        if await alert_service.start():
+            logger.info("Fair price alert service started in background")
+            await alert_service.run_monitoring_loop()
+        else:
+            logger.error("Failed to start fair price alert service")
+    except Exception as e:
+        logger.error(f"Error in fair price monitoring loop: {e}")
+
+
 async def main() -> None:
     """Main application entry point."""
     try:
@@ -221,6 +250,9 @@ async def main() -> None:
             # Start time sync background task
             sync_task = asyncio.create_task(time_sync_loop(container))
 
+            # Start fair price monitoring background task
+            fair_price_task = asyncio.create_task(fair_price_monitor_loop(container))
+
             logger.info("Bot starting...")
 
             try:
@@ -229,6 +261,7 @@ async def main() -> None:
             finally:
                 # Clean up
                 sync_task.cancel()
+                fair_price_task.cancel()
                 await bot.session.close()
 
     except KeyboardInterrupt:

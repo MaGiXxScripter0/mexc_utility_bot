@@ -70,6 +70,22 @@ class NetworkItem(TypedDict):
     contractAddress: Optional[str]
 
 
+class AccountAssetItem(TypedDict):
+    """Account asset item structure."""
+    currency: str
+    availableBalance: str
+    positionMargin: str
+    frozenBalance: str
+    equity: str
+    unrealised: Optional[str]
+
+
+class AccountAssetsResponse(TypedDict):
+    """Account assets API response."""
+    code: int
+    data: List[AccountAssetItem]
+
+
 class WalletNetworksResponse(TypedDict):
     """Wallet networks API response."""
     coin: str

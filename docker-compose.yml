@@ -14,6 +14,23 @@ services:
     networks:
       - mexc-bot-network
 
+  fair-price-monitor:
+    build: .
+    container_name: mexc-fair-price-monitor
+    restart: unless-stopped
+    command: python fair_price_monitor.py
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - ALERT_CHAT_ID=${ALERT_CHAT_ID:-1003321617744}
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - mexc-bot-network
+    depends_on:
+      - mexc-bot
+
 networks:
   mexc-bot-network:
     driver: bridge
