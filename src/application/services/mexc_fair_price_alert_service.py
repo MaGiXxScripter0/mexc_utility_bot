@@ -304,4 +304,4 @@ class MexcFairPriceAlertService(BaseFairPriceAlertService):
         """Get MEXC ticker link."""
         # Replace / with _ for URL format
         url_symbol = symbol.replace('/', '_')
-        return f"[{symbol_escaped}](https://www.mexc.com/ru-RU/futures/{url_symbol})"
+        return f"[{url_symbol}](https://www.mexc.com/ru-RU/futures/{url_symbol})"
