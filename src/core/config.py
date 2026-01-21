@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
 
@@ -28,7 +28,7 @@ class Config:
     http_proxy: Optional[str]
 
     # Telegram alert configuration
-    alert_chat_id: str
+    alert_chat_ids: List[str]
 
     # WebSocket configuration
     mexc_ws_url: str = "wss://contract.mexc.com/edge"
@@ -55,7 +55,8 @@ class Config:
         gate_api_secret = os.getenv("GATE_API_SECRET", "").strip() or None
 
         http_proxy = os.getenv("HTTP_PROXY", "").strip() or None
-        alert_chat_id = os.getenv("ALERT_CHAT_ID", "-1003321617744").strip()
+        alert_chat_ids_str = os.getenv("ALERT_CHAT_IDS", "-1003321617744").strip()
+        alert_chat_ids = [chat_id.strip() for chat_id in alert_chat_ids_str.split(",") if chat_id.strip()]
 
         return cls(
             bot_token=bot_token,
@@ -64,7 +65,7 @@ class Config:
             gate_api_key=gate_api_key,
             gate_api_secret=gate_api_secret,
             http_proxy=http_proxy,
-            alert_chat_id=alert_chat_id,
+            alert_chat_ids=alert_chat_ids,
         )
 
     @property

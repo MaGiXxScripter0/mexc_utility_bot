@@ -219,28 +219,37 @@ class BaseFairPriceAlertService(ABC):
 
             markdown_v2_message = self.markdown_service.convert_to_markdown_v2(message)
 
-            logger.info(f"Sending {self.exchange_name} alert to Telegram chat {self.config.alert_chat_id}...")
-            try:
-                await self.bot.send_message(
-                    chat_id=self.config.alert_chat_id,
-                    text=markdown_v2_message,
-                    parse_mode="MarkdownV2",
-                    disable_web_page_preview=True
-                )
-                logger.info(f"✅ Sent {self.exchange_name} fair price alert for {symbol}: {spread_str}")
-            except Exception as telegram_error:
-                logger.error(f"❌ Telegram API error sending {self.exchange_name} alert for {symbol}: {telegram_error}")
-                # Try to send a simplified version without MarkdownV2
+            logger.info(f"Sending {self.exchange_name} alert to {len(self.config.alert_chat_ids)} Telegram chat(s)...")
+            sent_count = 0
+            for chat_id in self.config.alert_chat_ids:
                 try:
-                    simple_message = f"{emoji} {self.exchange_name} Fair Price Alert\n\n{symbol}: {spread_str}\nLast: {last_price:.8f}\nFair: {fair_price:.8f}"
                     await self.bot.send_message(
-                        chat_id=self.config.alert_chat_id,
-                        text=simple_message,
+                        chat_id=chat_id,
+                        text=markdown_v2_message,
+                        parse_mode="MarkdownV2",
                         disable_web_page_preview=True
                     )
-                    logger.warning(f"✅ Sent simplified {self.exchange_name} alert for {symbol} (MarkdownV2 failed)")
-                except Exception as fallback_error:
-                    logger.error(f"❌ Complete failure sending {self.exchange_name} alert for {symbol}: {fallback_error}")
+                    sent_count += 1
+                    logger.debug(f"✅ Sent {self.exchange_name} alert to chat {chat_id}")
+                except Exception as telegram_error:
+                    logger.error(f"❌ Telegram API error sending {self.exchange_name} alert to chat {chat_id}: {telegram_error}")
+                    # Try to send a simplified version without MarkdownV2
+                    try:
+                        simple_message = f"{emoji} {self.exchange_name} Fair Price Alert\n\n{symbol}: {spread_str}\nLast: {last_price:.8f}\nFair: {fair_price:.8f}"
+                        await self.bot.send_message(
+                            chat_id=chat_id,
+                            text=simple_message,
+                            disable_web_page_preview=True
+                        )
+                        sent_count += 1
+                        logger.warning(f"✅ Sent simplified {self.exchange_name} alert to chat {chat_id} (MarkdownV2 failed)")
+                    except Exception as fallback_error:
+                        logger.error(f"❌ Complete failure sending {self.exchange_name} alert to chat {chat_id}: {fallback_error}")
+
+            if sent_count > 0:
+                logger.info(f"✅ Sent {self.exchange_name} fair price alert for {symbol}: {spread_str} (to {sent_count}/{len(self.config.alert_chat_ids)} chats)")
+            else:
+                logger.error(f"❌ Failed to send {self.exchange_name} alert to any chat")
 
         except Exception as e:
             logger.error(f"❌ Failed to prepare {self.exchange_name} alert for {symbol}: {e}")

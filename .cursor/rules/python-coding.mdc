@@ -120,7 +120,7 @@ print("Error:", e)
 class Config:
     bot_token: str
     mexc_api_key: Optional[str] = None
-    alert_chat_id: str = "-1003321617744"
+    alert_chat_ids: List[str] = ["-1003321617744"]
 
     @classmethod
     def load(cls) -> "Config":
