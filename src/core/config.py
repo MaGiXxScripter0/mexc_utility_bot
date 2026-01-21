@@ -10,6 +10,13 @@ logger = setup_logging()
 
 
 @dataclass(frozen=True)
+class AlertChatConfig:
+    """Configuration for alert chat with optional topic support."""
+    chat_id: str
+    message_thread_id: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class Config:
     """Application configuration loaded from environment variables."""
 
@@ -28,7 +35,7 @@ class Config:
     http_proxy: Optional[str]
 
     # Telegram alert configuration
-    alert_chat_ids: List[str]
+    alert_chats: List[AlertChatConfig]
 
     # WebSocket configuration
     mexc_ws_url: str = "wss://contract.mexc.com/edge"
@@ -55,8 +62,22 @@ class Config:
         gate_api_secret = os.getenv("GATE_API_SECRET", "").strip() or None
 
         http_proxy = os.getenv("HTTP_PROXY", "").strip() or None
+
+        # Parse ALERT_CHAT_IDS in format: chat_id[:thread_id], separated by commas
         alert_chat_ids_str = os.getenv("ALERT_CHAT_IDS", "-1003321617744").strip()
-        alert_chat_ids = [chat_id.strip() for chat_id in alert_chat_ids_str.split(",") if chat_id.strip()]
+        alert_chats = []
+        for item in alert_chat_ids_str.split(","):
+            item = item.strip()
+            if not item:
+                continue
+
+            if ":" in item:
+                chat_id, thread_id_str = item.split(":", 1)
+                chat_id = chat_id.strip()
+                thread_id = int(thread_id_str.strip())
+                alert_chats.append(AlertChatConfig(chat_id=chat_id, message_thread_id=thread_id))
+            else:
+                alert_chats.append(AlertChatConfig(chat_id=item))
 
         return cls(
             bot_token=bot_token,
@@ -65,7 +86,7 @@ class Config:
             gate_api_key=gate_api_key,
             gate_api_secret=gate_api_secret,
             http_proxy=http_proxy,
-            alert_chat_ids=alert_chat_ids,
+            alert_chats=alert_chats,
         )
 
     @property
