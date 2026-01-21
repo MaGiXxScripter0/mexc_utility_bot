@@ -161,7 +161,7 @@ class BaseFairPriceAlertService(ABC):
             logger.debug(f"{self.exchange_name} {symbol}: Spread calculation - last: {last_price:.8f}, fair: {fair_price:.8f}, spread: {spread_pct:+.4f}%")
 
             # Check alert threshold (currently set to 0% which means alert on any spread)
-            threshold = 5.0  # This matches the current setting
+            threshold = 5.0 # This matches the current setting
             should_alert = abs_spread_pct >= threshold
 
             if should_alert:
@@ -270,9 +270,13 @@ class BaseFairPriceAlertService(ABC):
 💰 **Last Price:** `{last_price_fmt}`
 🎯 **Fair Price:** `{fair_price_fmt}`
 📈 **Spread:** `{spread_str}`
-📊 **Volume 24h:** `{volume_fmt}`
-🏛️ **Index Pool:** {index_info}
-🌐 **DEX Networks:** {dex_info}"""
+📊 **Volume 24h:** `{volume_fmt}`"""
+
+        # Add Index Pool only if available
+        if index_info:
+            message += f"\n🏛️ **Index Pool:** {index_info}"
+
+        message += f"\n🌐 **DEX Networks:** {dex_info}"
 
         # Add Buy Limit only if available (MEXC only)
         if buying_limit:

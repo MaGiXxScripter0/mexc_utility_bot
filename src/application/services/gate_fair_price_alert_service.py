@@ -18,6 +18,21 @@ logger = setup_logging()
 class GateFairPriceAlertService(BaseFairPriceAlertService):
     """Fair price alert service for Gate.io."""
 
+    @staticmethod
+    def _normalize_futures_symbol(raw: str) -> str:
+        """Normalize futures symbol."""
+        symbol = raw.strip().replace("-", "_").replace("/", "_").upper()
+
+        # If no underscore found, assume it's base currency and add _USDT
+        if "_" not in symbol:
+            # Common quote currencies to check
+            quote_currencies = ["USDT", "USD", "BTC", "ETH", "BNB"]
+            if not any(symbol.endswith(quote) for quote in quote_currencies):
+                symbol = f"{symbol}_USDT"
+
+        return symbol
+    """Fair price alert service for Gate.io."""
+
     def __init__(self, config: Config, markdown_service: MarkdownService, gate_client: GateClient):
         super().__init__(config, markdown_service, "GATE.IO", "🏛️")
         self.gate_client = gate_client
@@ -104,8 +119,10 @@ class GateFairPriceAlertService(BaseFairPriceAlertService):
 
             if self._should_alert(last_price, mark_price, contract_name):
                 # Check if we already alerted for this symbol recently
+                alerted_symbols_list = list(self.alerted_symbols)
+                logger.debug(f"Gate.io {contract_name}: Current alerted symbols: {alerted_symbols_list}")
                 if contract_name in self.alerted_symbols:
-                    logger.debug(f"Gate.io {contract_name}: Skipping alert (already alerted recently)")
+                    logger.info(f"Gate.io {contract_name}: Skipping alert (already alerted recently, cooldown active)")
                     return
 
                 # Determine alert type
@@ -124,10 +141,11 @@ class GateFairPriceAlertService(BaseFairPriceAlertService):
 
                 # Mark as alerted to avoid spam
                 self.alerted_symbols.add(contract_name)
-                logger.debug(f"Gate.io {contract_name}: Added to cooldown list (total cooling down: {len(self.alerted_symbols)})")
+                logger.info(f"Gate.io {contract_name}: Added to cooldown list (120s), total cooling down: {len(self.alerted_symbols)}")
 
-                # Remove from alerted symbols after 2 minutes
-                asyncio.create_task(self._remove_alert_cooldown(contract_name, 120))
+                # Remove from alerted symbols after 5 minutes (increased cooldown to prevent duplicates)
+                cooldown_task = asyncio.create_task(self._remove_alert_cooldown(contract_name, 300))
+                logger.debug(f"Gate.io {contract_name}: Started cooldown task (300s)")
 
         except Exception as e:
             logger.error(f"Error processing Gate.io ticker {ticker.get('contract', 'unknown')}: {e}")
@@ -136,23 +154,23 @@ class GateFairPriceAlertService(BaseFairPriceAlertService):
     async def get_index_info(self, symbol: str) -> str:
         """Get index weights information for Gate.io."""
         try:
-            # Normalize symbol format for API call
-            normalized_symbol = symbol.replace("_", "/")
+            # Normalize symbol format for API call (same as gate_info_service.py)
+            normalized_symbol = self._normalize_futures_symbol(symbol)
             logger.debug(f"Gate.io normalizing symbol for index: {symbol} -> {normalized_symbol}")
 
             ok, err, index_data = await self.gate_client.fetch_index_constituents(normalized_symbol)
 
             if not ok:
                 logger.debug(f"Gate.io index API failed for {symbol}: {err}")
-                return "GATE.IO"
+                return ""
             if not index_data or not isinstance(index_data, dict):
                 logger.debug(f"No Gate.io index data for {symbol}")
-                return "GATE.IO"
+                return ""
 
             constituents = index_data.get("constituents", [])
             if not constituents:
                 logger.debug(f"Empty Gate.io index data for {symbol}")
-                return "GATE.IO"
+                return ""
 
             # Filter and format weights > 0%
             valid_weights = []
@@ -173,11 +191,11 @@ class GateFairPriceAlertService(BaseFairPriceAlertService):
                 return result
             else:
                 logger.debug(f"No valid Gate.io weights found for {symbol}")
-                return "GATE.IO"
+                return ""
 
         except Exception as e:
             logger.warning(f"Failed to get Gate.io index info for {symbol}: {e}")
-            return "GATE.IO"
+            return ""
 
     async def get_dex_info(self, coin: str) -> str:
         """Get DEX/networks information for Gate.io."""
@@ -267,4 +285,4 @@ class GateFairPriceAlertService(BaseFairPriceAlertService):
 
     def _get_ticker_link(self, symbol: str, symbol_escaped: str) -> str:
         """Get Gate.io ticker link."""
-        return f"[{symbol_escaped}](https://www.gate.io/futures/{symbol.upper()})"
+        return f"[{symbol_escaped}](https://www.gate.io/futures/USDT/{symbol.upper()})"

@@ -140,8 +140,8 @@ class MexcFairPriceAlertService(BaseFairPriceAlertService):
                 self.alerted_symbols.add(symbol)
                 logger.debug(f"MEXC {symbol}: Added to cooldown list (total cooling down: {len(self.alerted_symbols)})")
 
-                # Remove from alerted symbols after 2 minutes
-                asyncio.create_task(self._remove_alert_cooldown(symbol, 120))
+                # Remove from alerted symbols after 5 minutes (increased cooldown to prevent duplicates)
+                asyncio.create_task(self._remove_alert_cooldown(symbol, 300))
 
         except Exception as e:
             logger.error(f"Error processing MEXC ticker {ticker.get('symbol', 'unknown')}: {e}")
