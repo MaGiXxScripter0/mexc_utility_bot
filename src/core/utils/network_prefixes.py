@@ -23,6 +23,8 @@ class NetworkPrefixUtils:
             return "bsc"
         elif "SOL" in net_name or "SOLANA" in net_name:
             return "solana"
+        elif "BASE" in net_name or "BASEEVM" in net_name:
+            return "base"
         elif "TRON" in net_name or "TRC20" in net_name:
             return "tron"
         else:
@@ -43,6 +45,8 @@ class NetworkPrefixUtils:
             return "optimism"
         elif "BSC" in net_name or "BNB" in net_name:
             return "bsc"
+        elif "BASE" in net_name or "BASEEVM" in net_name:
+            return "base"
         elif "SOL" in net_name or "SOLANA" in net_name:
             return "solana"
         else:

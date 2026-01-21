@@ -302,4 +302,6 @@ class MexcFairPriceAlertService(BaseFairPriceAlertService):
 
     def _get_ticker_link(self, symbol: str, symbol_escaped: str) -> str:
         """Get MEXC ticker link."""
-        return f"[{symbol_escaped}](https://www.mexc.com/ru-RU/futures/{symbol_escaped})"
+        # Replace / with _ for URL format
+        url_symbol = symbol.replace('/', '_')
+        return f"[{symbol_escaped}](https://www.mexc.com/ru-RU/futures/{url_symbol})"
