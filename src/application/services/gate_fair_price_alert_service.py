@@ -41,10 +41,8 @@ class GateFairPriceAlertService(BaseFairPriceAlertService):
     async def connect_websocket(self) -> bool:
         """Connect to Gate.io WebSocket."""
         try:
-            logger.info("Gate.io: Initiating WebSocket connection...")
             connected = await self.ws_client.connect()
             if connected:
-                logger.info("Gate.io: WebSocket connected successfully")
                 return True
             else:
                 logger.error("Gate.io: WebSocket connection failed")
@@ -118,34 +116,36 @@ class GateFairPriceAlertService(BaseFairPriceAlertService):
             logger.debug(f"Gate.io {contract_name}: Processing ticker - last: {last_price:.8f}, mark: {mark_price:.8f}")
 
             if self._should_alert(last_price, mark_price, contract_name):
-                # Check if we already alerted for this symbol recently
-                alerted_symbols_list = list(self.alerted_symbols)
-                logger.debug(f"Gate.io {contract_name}: Current alerted symbols: {alerted_symbols_list}")
-                if contract_name in self.alerted_symbols:
-                    logger.info(f"Gate.io {contract_name}: Skipping alert (already alerted recently, cooldown active)")
-                    return
+                # Use lock to prevent duplicate alerts for the same symbol
+                async with self.alert_lock:
+                    # Check if we already alerted for this symbol recently
+                    alerted_symbols_list = list(self.alerted_symbols)
+                    logger.debug(f"Gate.io {contract_name}: Current alerted symbols: {alerted_symbols_list}")
+                    if contract_name in self.alerted_symbols:
+                        logger.info(f"Gate.io {contract_name}: Skipping alert (already alerted recently, cooldown active)")
+                        return
 
-                # Determine alert type
-                spread_pct = ((last_price - mark_price) / mark_price) * 100
-                if spread_pct > 0:
-                    alert_type = "🔴 SHORT"
-                    emoji = "⚠️"
-                else:
-                    alert_type = "🟢 LONG"
-                    emoji = "ℹ️"
+                    # Determine alert type
+                    spread_pct = ((last_price - mark_price) / mark_price) * 100
+                    if spread_pct > 0:
+                        alert_type = "🔴 SHORT"
+                        emoji = "⚠️"
+                    else:
+                        alert_type = "🟢 LONG"
+                        emoji = "ℹ️"
 
-                logger.info(f"Gate.io {contract_name}: Preparing alert - type: {alert_type}, spread: {spread_pct:+.4f}%")
+                    logger.info(f"Gate.io {contract_name}: Preparing alert - type: {alert_type}, spread: {spread_pct:+.4f}%")
 
-                # Send alert
-                await self._send_alert(ticker, alert_type, emoji)
+                    # Send alert
+                    await self._send_alert(ticker, alert_type, emoji)
 
-                # Mark as alerted to avoid spam
-                self.alerted_symbols.add(contract_name)
-                logger.info(f"Gate.io {contract_name}: Added to cooldown list (120s), total cooling down: {len(self.alerted_symbols)}")
+                    # Mark as alerted to avoid spam
+                    self.alerted_symbols.add(contract_name)
+                    logger.info(f"Gate.io {contract_name}: Added to cooldown list (300s), total cooling down: {len(self.alerted_symbols)}")
 
-                # Remove from alerted symbols after 5 minutes (increased cooldown to prevent duplicates)
-                cooldown_task = asyncio.create_task(self._remove_alert_cooldown(contract_name, 300))
-                logger.debug(f"Gate.io {contract_name}: Started cooldown task (300s)")
+                    # Remove from alerted symbols after 5 minutes
+                    cooldown_task = asyncio.create_task(self._remove_alert_cooldown(contract_name, 300))
+                    logger.debug(f"Gate.io {contract_name}: Started cooldown task (300s)")
 
         except Exception as e:
             logger.error(f"Error processing Gate.io ticker {ticker.get('contract', 'unknown')}: {e}")

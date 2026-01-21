@@ -29,6 +29,7 @@ class BaseFairPriceAlertService(ABC):
         self.exchange_emoji = exchange_emoji
         self.bot: Optional[Bot] = None
         self.alerted_symbols: Set[str] = set()
+        self.alert_lock: asyncio.Lock = asyncio.Lock()
         self.monitoring_task: Optional[asyncio.Task] = None
         self.is_running = False
 

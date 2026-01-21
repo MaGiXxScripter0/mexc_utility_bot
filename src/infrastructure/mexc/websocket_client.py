@@ -38,7 +38,6 @@ class MexcWebSocketClient:
                 close_timeout=5
             )
             self.is_connected = True
-            logger.info("Successfully connected to MEXC WebSocket")
 
             # Start ping task
             self.ping_task = asyncio.create_task(self._ping_loop())

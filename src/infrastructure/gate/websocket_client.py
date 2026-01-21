@@ -62,7 +62,6 @@ class GateWebSocketClient:
                 await asyncio.sleep(0.1)
 
             if self.is_connected:
-                logger.info("Successfully connected to Gate.io WebSocket")
                 return True
             else:
                 logger.error("Gate.io WebSocket connection timeout")
@@ -125,7 +124,6 @@ class GateWebSocketClient:
     def _on_open(self, ws):
         """WebSocket on_open callback."""
         self.is_connected = True
-        logger.info("Gate.io WebSocket opened")
 
     def _on_message(self, ws, message):
         """WebSocket on_message callback."""

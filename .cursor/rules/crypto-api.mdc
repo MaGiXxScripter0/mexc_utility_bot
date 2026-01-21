@@ -1,0 +1,281 @@
+---
+description: Правила работы с API криптобирж MEXC и Gate.io
+globs: ["src/infrastructure/**/*.py", "src/application/services/**/*.py"]
+---
+
+# Правила работы с API криптобирж
+
+## MEXC API интеграция
+
+### Endpoints и конфигурация
+```python
+class Config:
+    # Основные endpoints
+    mexc_futures_public: str = "https://contract.mexc.com/api/v1"
+    mexc_futures_web: str = "https://www.mexc.com/api/platform/futures/api/v1"
+    mexc_spot: str = "https://api.mexc.com"
+
+    # WebSocket
+    mexc_ws_url: str = "wss://contract.mexc.com/edge"
+
+    # API URLs
+    @property
+    def contract_detail_url(self) -> str:
+        return f"{self.mexc_futures_public}/contract/detail"
+
+    @property
+    def futures_ticker_url(self) -> str:
+        return f"{self.mexc_futures_public}/contract/ticker"
+
+    @property
+    def spot_24h_url(self) -> str:
+        return f"{self.mexc_spot}/api/v3/ticker/24hr"
+
+    @property
+    def wallet_networks_url(self) -> str:
+        return f"{self.mexc_spot}/api/v3/capital/config/getall"
+```
+
+### MexcClient структура
+```python
+class MexcClient:
+    def __init__(self, config: Config, http_client: HttpClient, time_sync: MexcTimeSync):
+        self.config = config
+        self.http_client = http_client
+        self.time_sync = time_sync
+
+    async def fetch_contract_detail(self, symbol: str) -> Tuple[bool, str, Optional[ContractDetailData]]:
+        """Получить детали контракта."""
+        url = self.config.contract_detail_url
+        params = {"symbol": symbol}
+
+        ok, error, data = await self.http_client.get_json(url, params)
+        if not ok:
+            return False, error, None
+
+        # Парсинг ответа
+        if isinstance(data, dict) and data.get("success"):
+            contract_data = ContractDetailData.from_dict(data["data"])
+            return True, "", contract_data
+
+        return False, "Invalid response format", None
+
+    async def fetch_futures_ticker(self, symbol: str) -> Tuple[bool, str, Optional[FuturesTickerData]]:
+        """Получить фьючерсный тикер."""
+        url = self.config.futures_ticker_url
+        params = {"symbol": symbol}
+
+        ok, error, data = await self.http_client.get_json(url, params)
+        if not ok:
+            return False, error, None
+
+        if isinstance(data, dict) and data.get("success"):
+            ticker_data = FuturesTickerData.from_dict(data["data"])
+            return True, "", ticker_data
+
+        return False, "Invalid ticker response", None
+```
+
+## Gate.io API интеграция
+
+### GateClient структура
+```python
+class GateClient:
+    def __init__(self, config: Config, http_client: HttpClient):
+        self.config = config
+        self.http_client = http_client
+
+    async def fetch_futures_contracts(self) -> Tuple[bool, str, List[GateFuturesContractData]]:
+        """Получить список фьючерсных контрактов."""
+        url = f"{self.config.gate_base_url}/futures/usdt/contracts"
+
+        ok, error, data = await self.http_client.get_json(url)
+        if not ok:
+            return False, error, []
+
+        if isinstance(data, list):
+            contracts = [GateFuturesContractData.from_dict(item) for item in data]
+            return True, "", contracts
+
+        return False, "Invalid contracts response", []
+
+    async def fetch_futures_tickers(self) -> Tuple[bool, str, List[GateFuturesTickerData]]:
+        """Получить фьючерсные тикеры."""
+        url = f"{self.config.gate_base_url}/futures/usdt/tickers"
+
+        ok, error, data = await self.http_client.get_json(url)
+        if not ok:
+            return False, error, []
+
+        if isinstance(data, list):
+            tickers = [GateFuturesTickerData.from_dict(item) for item in data]
+            return True, "", tickers
+
+        return False, "Invalid tickers response", []
+```
+
+## WebSocket клиенты
+
+### MexcWebSocketClient
+```python
+class MexcWebSocketClient:
+    def __init__(self, config: Config):
+        self.config = config
+        self.websocket = None
+        self.reconnect_delay = 1
+
+    async def connect(self) -> None:
+        """Подключение с автоматическим переподключением."""
+        while True:
+            try:
+                self.websocket = await websockets.connect(self.config.mexc_ws_url)
+                logger.info("Connected to MEXC WebSocket")
+                break
+            except Exception as e:
+                logger.error(f"WebSocket connection failed: {e}")
+                await asyncio.sleep(self.reconnect_delay)
+                self.reconnect_delay = min(self.reconnect_delay * 2, 60)
+
+    async def listen(self):
+        """Слушать сообщения с переподключением."""
+        while True:
+            try:
+                if not self.websocket:
+                    await self.connect()
+
+                # Подписка на канал
+                subscribe_msg = {
+                    "method": "SUBSCRIBE",
+                    "params": ["contract@ticker:all"],
+                    "id": 1
+                }
+                await self.websocket.send(json.dumps(subscribe_msg))
+
+                async for message in self.websocket:
+                    yield json.loads(message)
+
+            except websockets.exceptions.ConnectionClosed:
+                logger.warning("WebSocket connection closed, reconnecting...")
+                await self.connect()
+            except Exception as e:
+                logger.error(f"WebSocket error: {e}")
+                await asyncio.sleep(5)
+```
+
+## Форматирование данных
+
+### Ценовые данные
+```python
+def _fmt_money(value: float) -> str:
+    """Форматирование денежных значений."""
+    if isinstance(value, str):
+        value = float(value)
+
+    if abs(value) >= 1:
+        return f"{value:,.2f}"  # 1,234.56
+    else:
+        return f"{value:.6f}"   # 0.000123
+
+def _fmt_volume(value: float) -> str:
+    """Форматирование объемов."""
+    if isinstance(value, str):
+        value = float(value)
+
+    if value >= 1_000_000:
+        return f"{value/1_000_000:.1f}M"  # 1.2M
+    elif value >= 1_000:
+        return f"{value/1_000:.1f}K"      # 1.2K
+    else:
+        return f"{value:.0f}"             # 123
+```
+
+### Спред и проценты
+```python
+def calculate_spread(last_price: float, fair_price: float) -> Tuple[str, str]:
+    """Расчет спреда между ценами."""
+    if fair_price == 0:
+        return "0.00%", "🟢"
+
+    spread_percent = ((last_price - fair_price) / fair_price) * 100
+
+    # Форматирование с цветом
+    if spread_percent > 5:
+        color = "🔴"  # SHORT (цена выше справедливой)
+    elif spread_percent < -5:
+        color = "🟢"  # LONG (цена ниже справедливой)
+    else:
+        color = "🟡"  # NEUTRAL
+
+    return f"{spread_percent:+.2f}%", color
+```
+
+## Обработка символов
+
+### Нормализация символов
+```python
+def _normalize_mexc_symbol(self, symbol: str) -> str:
+    """Нормализация символа для MEXC."""
+    symbol = symbol.strip().replace("-", "_").replace("/", "_").upper()
+    if "_" not in symbol:
+        symbol = f"{symbol}_USDT"
+    return symbol
+
+def _normalize_gate_symbol(self, symbol: str) -> str:
+    """Нормализация символа для Gate.io."""
+    symbol = symbol.upper()
+    if "_" not in symbol:
+        symbol = f"{symbol}_USDT"
+    return symbol
+```
+
+## Time synchronization
+
+### MexcTimeSync
+```python
+class MexcTimeSync:
+    def __init__(self):
+        self.server_time_offset = 0
+
+    async def sync(self, http_client: HttpClient, time_url: str) -> None:
+        """Синхронизация времени с сервером."""
+        try:
+            ok, error, data = await http_client.get_json(time_url)
+            if ok and isinstance(data, dict):
+                server_time = data.get("serverTime", 0)
+                local_time = int(time.time() * 1000)
+                self.server_time_offset = server_time - local_time
+                logger.info(f"Time synced, offset: {self.server_time_offset}ms")
+        except Exception as e:
+            logger.error(f"Time sync failed: {e}")
+
+    def get_server_time(self) -> int:
+        """Получить синхронизированное время сервера."""
+        return int(time.time() * 1000) + self.server_time_offset
+```
+
+## API ключи и аутентификация
+
+### Подпись запросов
+```python
+def _sign_request(self, params: Dict[str, Any]) -> str:
+    """Подпись запроса для MEXC API."""
+    query_string = "&".join([f"{k}={v}" for k, v in sorted(params.items())])
+    signature = hmac.new(
+        self.config.mexc_api_secret.encode('utf-8'),
+        query_string.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+    return signature
+
+async def _make_authenticated_request(self, endpoint: str, params: Dict[str, Any]) -> Tuple[bool, str, Any]:
+    """Аутентифицированный запрос."""
+    params["timestamp"] = self.time_sync.get_server_time()
+    params["signature"] = self._sign_request(params)
+
+    headers = {
+        "X-MEXC-APIKEY": self.config.mexc_api_key,
+        "Content-Type": "application/json"
+    }
+
+    return await self.http_client.get_json(endpoint, params, headers)
+```

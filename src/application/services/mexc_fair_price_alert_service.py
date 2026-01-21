@@ -26,10 +26,8 @@ class MexcFairPriceAlertService(BaseFairPriceAlertService):
     async def connect_websocket(self) -> bool:
         """Connect to MEXC WebSocket."""
         try:
-            logger.info("MEXC: Initiating WebSocket connection...")
             connected = await self.ws_client.connect()
             if connected:
-                logger.info("MEXC: WebSocket connected successfully")
                 return True
             else:
                 logger.error("MEXC: WebSocket connection failed")
@@ -117,31 +115,33 @@ class MexcFairPriceAlertService(BaseFairPriceAlertService):
             logger.debug(f"MEXC {symbol}: Processing ticker - last: {last_price:.8f}, fair: {fair_price:.8f}")
 
             if self._should_alert(last_price, fair_price, symbol):
-                # Check if we already alerted for this symbol recently
-                if symbol in self.alerted_symbols:
-                    logger.debug(f"MEXC {symbol}: Skipping alert (already alerted recently)")
-                    return
+                # Use lock to prevent duplicate alerts for the same symbol
+                async with self.alert_lock:
+                    # Check if we already alerted for this symbol recently
+                    if symbol in self.alerted_symbols:
+                        logger.debug(f"MEXC {symbol}: Skipping alert (already alerted recently)")
+                        return
 
-                # Determine alert type
-                spread_pct = ((last_price - fair_price) / fair_price) * 100
-                if spread_pct > 0:
-                    alert_type = "🔴 SHORT"
-                    emoji = "⚠️"
-                else:
-                    alert_type = "🟢 LONG"
-                    emoji = "ℹ️"
+                    # Determine alert type
+                    spread_pct = ((last_price - fair_price) / fair_price) * 100
+                    if spread_pct > 0:
+                        alert_type = "🔴 SHORT"
+                        emoji = "⚠️"
+                    else:
+                        alert_type = "🟢 LONG"
+                        emoji = "ℹ️"
 
-                logger.info(f"MEXC {symbol}: Preparing alert - type: {alert_type}, spread: {spread_pct:+.4f}%")
+                    logger.info(f"MEXC {symbol}: Preparing alert - type: {alert_type}, spread: {spread_pct:+.4f}%")
 
-                # Send alert
-                await self._send_alert(ticker, alert_type, emoji)
+                    # Send alert
+                    await self._send_alert(ticker, alert_type, emoji)
 
-                # Mark as alerted to avoid spam
-                self.alerted_symbols.add(symbol)
-                logger.debug(f"MEXC {symbol}: Added to cooldown list (total cooling down: {len(self.alerted_symbols)})")
+                    # Mark as alerted to avoid spam
+                    self.alerted_symbols.add(symbol)
+                    logger.debug(f"MEXC {symbol}: Added to cooldown list (total cooling down: {len(self.alerted_symbols)})")
 
-                # Remove from alerted symbols after 5 minutes (increased cooldown to prevent duplicates)
-                asyncio.create_task(self._remove_alert_cooldown(symbol, 300))
+                    # Remove from alerted symbols after 5 minutes
+                    asyncio.create_task(self._remove_alert_cooldown(symbol, 300))
 
         except Exception as e:
             logger.error(f"Error processing MEXC ticker {ticker.get('symbol', 'unknown')}: {e}")

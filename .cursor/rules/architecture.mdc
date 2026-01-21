@@ -1,0 +1,203 @@
+---
+description: Архитектурные правила для MEXC Telegram Bot
+globs: ["src/**/*.py", "main.py"]
+---
+
+# Архитектурные правила
+
+## Clean Architecture слои
+
+### Domain слой (src/domain/)
+```
+src/domain/
+├── __init__.py
+└── # бизнес-модели, интерфейсы, исключения
+```
+- **Назначение**: Бизнес-логика, модели данных, бизнес-правила
+- **Зависимости**: Не зависит от других слоев
+- **Содержимое**: Абстрактные интерфейсы, модели данных, бизнес-исключения
+
+### Application слой (src/application/)
+```
+src/application/
+├── __init__.py
+└── services/          # бизнес-сервисы
+    ├── mexc_info_service.py
+    ├── gate_info_service.py
+    ├── cex_aggregator_service.py
+    └── fair_price_alert_service.py
+```
+- **Назначение**: Сервисы приложения с бизнес-логикой
+- **Зависимости**: Может зависеть от Domain, но не от Infrastructure
+- **Содержимое**: Сервисы, use cases, бизнес-правила
+
+### Infrastructure слой (src/infrastructure/)
+```
+src/infrastructure/
+├── http_client.py
+├── mexc/
+│   ├── client.py
+│   ├── dtos.py
+│   └── websocket_client.py
+└── gate/
+    ├── client.py
+    ├── dtos.py
+    └── websocket_client.py
+```
+- **Назначение**: Внешние зависимости и адаптеры
+- **Зависимости**: Может зависеть от Application и Domain
+- **Содержимое**: HTTP клиенты, WebSocket, API адаптеры, DTOs
+
+### Core слой (src/core/)
+```
+src/core/
+├── config.py
+├── logging_config.py
+├── markdown_service.py
+└── utils/
+    ├── buy_limit_calculator.py
+    └── network_prefixes.py
+```
+- **Назначение**: Общие компоненты проекта
+- **Зависимости**: Независим от других слоев
+- **Содержимое**: Конфигурация, логирование, утилиты
+
+### Bot слой (src/bot/)
+```
+src/bot/
+├── main.py
+├── handlers/
+│   ├── mexc.py
+│   ├── gate.py
+│   └── cex.py
+└── middlewares/
+    └── __init__.py
+```
+- **Назначение**: Адаптер для Telegram API
+- **Зависимости**: Зависит от всех слоев
+- **Содержимое**: Обработчики команд, middleware
+
+## Принципы Dependency Injection
+
+### Dependency Container
+```python
+class DependencyContainer:
+    def __init__(self, config: Config):
+        self.config = config
+        self._http_client: HttpClient | None = None
+        self._mexc_client: MexcClient | None = None
+
+    async def start(self) -> None:
+        # Инициализация зависимостей
+        self._http_client = HttpClient(verify_ssl=True)
+        await self._http_client.start()
+
+        self._mexc_client = MexcClient(self.config, self._http_client)
+
+    @property
+    def mexc_client(self) -> MexcClient:
+        if self._mexc_client is None:
+            raise RuntimeError("Container not initialized")
+        return self._mexc_client
+```
+
+### Использование в сервисах
+```python
+class MexcInfoService:
+    def __init__(self, mexc_client: MexcClient, markdown_service: MarkdownService):
+        self.mexc_client = mexc_client
+        self.markdown_service = markdown_service
+```
+
+## Структура сервисов
+
+### Info Service паттерн
+```python
+class MexcInfoService:
+    def __init__(self, mexc_client: MexcClient, markdown_service: MarkdownService):
+        self.mexc_client = mexc_client
+        self.markdown_service = markdown_service
+
+    async def get_info(self, symbol: str) -> str:
+        # Получение данных
+        data = await self.mexc_client.get_symbol_data(symbol)
+
+        # Форматирование
+        return self.markdown_service.format_info(data)
+```
+
+### Aggregator Service паттерн
+```python
+class CexAggregatorService:
+    def __init__(self, mexc_client: MexcClient, gate_client: GateClient, http_client: HttpClient):
+        self.mexc_client = mexc_client
+        self.gate_client = gate_client
+        self.http_client = http_client
+
+    async def get_aggregated_info(self, symbol: str) -> Tuple[str, List[str]]:
+        # Параллельные запросы
+        mexc_task = self._get_mexc_data(symbol)
+        gate_task = self._get_gate_data(symbol)
+
+        mexc_data, mexc_errors = await mexc_task
+        gate_data, gate_errors = await gate_task
+
+        # Агрегация результатов
+        return self._build_message(symbol, mexc_data, gate_data, mexc_errors + gate_errors)
+```
+
+## WebSocket и мониторинг
+
+### Fair Price Alert паттерн
+```python
+class MexcFairPriceAlertService:
+    def __init__(self, config: Config, markdown_service: MarkdownService, mexc_client: MexcClient):
+        self.config = config
+        self.markdown_service = markdown_service
+        self.mexc_client = mexc_client
+        self.websocket_client = MexcWebSocketClient(config)
+
+    async def run_monitoring_loop(self) -> None:
+        async for message in self.websocket_client.listen():
+            if self._is_significant_spread(message):
+                alert = self._create_alert(message)
+                await self._send_alert(alert)
+```
+
+## DTOs и модели данных
+
+### DTO паттерн
+```python
+@dataclass
+class FuturesTickerData:
+    symbol: str
+    lastPrice: str
+    fairPrice: str
+    volume24h: str
+    indexPrice: str
+
+@dataclass
+class ContractDetailData:
+    symbol: str
+    contractSize: str
+    maxLeverage: str
+    networks: List[NetworkItem]
+```
+
+## Обработка ошибок
+
+### Error handling паттерн
+```python
+async def get_data_with_error_handling(self, symbol: str) -> Tuple[Optional[Data], List[str]]:
+    errors = []
+    try:
+        data = await self.client.get_data(symbol)
+        return data, errors
+    except ClientError as e:
+        errors.append(f"API error: {str(e)}")
+        return None, errors
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}", exc_info=True)
+        errors.append("Internal error")
+        return None, errors
+```

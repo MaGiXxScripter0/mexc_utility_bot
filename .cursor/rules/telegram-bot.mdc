@@ -1,0 +1,278 @@
+---
+description: Правила для Telegram бота и форматирования сообщений
+globs: ["src/bot/**/*.py", "src/core/markdown_service.py"]
+---
+
+# Правила Telegram бота
+
+## Структура команд
+
+### Обработчики команд
+```python
+# handlers/mexc.py
+async def handle_mexc_command(message: Message, service: MexcInfoService) -> None:
+    """Обработчик команды /mexc."""
+    try:
+        symbol = extract_symbol_from_command(message.text, "mexc")
+        if not symbol:
+            await message.reply("❌ Укажите символ, например: `/mexc BTC_USDT`", parse_mode=ParseMode.MARKDOWN_V2)
+            return
+
+        # Получение данных
+        response_text, errors = await service.get_info(symbol)
+
+        # Отправка ответа
+        await message.reply(response_text, parse_mode=ParseMode.MARKDOWN_V2, disable_web_page_preview=True)
+
+        # Логирование ошибок
+        if errors:
+            logger.warning(f"MEXC command errors for {symbol}: {errors}")
+
+    except Exception as e:
+        logger.error(f"Error handling mexc command: {e}")
+        await message.reply("❌ Произошла ошибка при обработке команды")
+
+# handlers/gate.py
+async def handle_gate_command(message: Message, service: GateInfoService) -> None:
+    """Обработчик команды /gate."""
+    # Аналогичная структура для Gate.io
+    pass
+
+# handlers/cex.py
+async def handle_cex_command(message: Message, service: CexAggregatorService) -> None:
+    """Обработчик команды /cex."""
+    # Агрегированная информация
+    pass
+```
+
+### Извлечение символа из команды
+```python
+def extract_symbol_from_command(text: str, command: str) -> Optional[str]:
+    """Извлечение символа из команды."""
+    # Удаляем упоминание бота @username
+    text = re.sub(r'@[\w]+', '', text).strip()
+
+    # Паттерн: /command SYMBOL
+    pattern = rf'^/{command}\s+(.+)$'
+    match = re.match(pattern, text, re.IGNORECASE)
+
+    if match:
+        symbol = match.group(1).strip()
+        return symbol.upper()
+
+    return None
+```
+
+## Регистрация команд в Dispatcher
+
+### Основной dispatcher
+```python
+async def create_dispatcher(container: DependencyContainer) -> Dispatcher:
+    """Создание и конфигурация Telegram dispatcher."""
+    dp = Dispatcher()
+
+    # Регистрация команд
+    @dp.message(Command("start"))
+    async def start_handler(message):
+        start_text = container.markdown_service.convert_to_markdown_v2(
+            "Команды:\n• `/cex BTC` (все биржи)\n• `/mexc 1_USDT` (MEXC)\n• `/gate BTC_USDT` (Gate.io)"
+        )
+        await message.reply(start_text, parse_mode=ParseMode.MARKDOWN_V2, disable_web_page_preview=True)
+
+    # Основные команды
+    @dp.message(Command("mexc", ignore_case=True))
+    async def mexc_handler(message):
+        await handle_mexc_command(message, container.cex_service)
+
+    @dp.message(Command("gate", ignore_case=True))
+    async def gate_handler(message):
+        await handle_gate_command(message, container.gate_service)
+
+    @dp.message(Command("cex", ignore_case=True))
+    async def cex_handler(message):
+        await handle_cex_command(message, container.cex_aggregator_service)
+
+    return dp
+```
+
+### Поддержка групп
+```python
+# Дополнительные обработчики для групповых чатов
+@dp.message(lambda message: message.text and message.text.lower().startswith('/mexc') and
+           message.chat.type in [ChatType.GROUP, ChatType.SUPERGROUP])
+async def mexc_group_handler(message):
+    # Обработка /mexc команд в группах
+    text_lower = message.text.lower()
+    # Разрешить все /mexc команды в группах
+    if '@' not in text_lower or '@' in text_lower:
+        await handle_mexc_command(message, container.cex_service)
+```
+
+## MarkdownV2 форматирование
+
+### MarkdownService
+```python
+class MarkdownService:
+    """Сервис для форматирования текста в MarkdownV2."""
+
+    # Специальные символы, требующие экранирования
+    SPECIAL_CHARS = r'_*[]()~`>#+-=|{}.!'
+
+    @staticmethod
+    def escape_markdown(text: str) -> str:
+        """Экранирование специальных символов для MarkdownV2."""
+        if not text:
+            return text
+
+        # Экранируем все специальные символы
+        escaped = re.sub(r'([' + re.escape(MarkdownService.SPECIAL_CHARS) + r'])', r'\\\1', text)
+
+        # Исключения: не экранируем в некоторых контекстах
+        # Здесь можно добавить специфические правила
+
+        return escaped
+
+    def convert_to_markdown_v2(self, text: str) -> str:
+        """Конвертация обычного текста в MarkdownV2."""
+        if not text:
+            return text
+
+        # Экранируем специальные символы
+        return self.escape_markdown(text)
+```
+
+### Форматирование цен и данных
+```python
+def format_price_info(self, symbol: str, data: FuturesTickerData) -> str:
+    """Форматирование информации о цене."""
+    lines = []
+
+    # Заголовок
+    lines.append(f"🔔 *{self.escape_markdown(symbol)}* | Status 🟢")
+    lines.append("")
+
+    # Спред
+    spread_str, color = calculate_spread(data.lastPrice, data.fairPrice)
+    lines.append(f"📈 *Spread:* {spread_str} {color} SHORT")
+    lines.append("💰 *Last:* $43,250.50 | *Fair:* $42,200.30 | *Index:* $42,180.75")
+    lines.append(f"📊 *Volume 24h:* 1,500,000 BTC | 65,000,000,000 USDT")
+    lines.append("")
+
+    # Buy Limit
+    lines.append("*Buy Limit:* $25,000")
+    lines.append("")
+
+    # Index
+    lines.append("*Index:* Binance 40.0% • OKX 30.0% • Huobi 20.0% • Other 10.0%")
+    lines.append("")
+
+    # Networks
+    lines.append("*ETHEREUM:* D: ✅ | W: ✅")
+    lines.append(f"`{self.escape_markdown(data.contract_address)}`")
+
+    # Links
+    lines.append(f"[DexScreener](https://dexscreener.com/ethereum/{data.contract_address}) | [GMGN](https://gmgn.ai/eth/token/{data.contract_address})")
+    lines.append("")
+    lines.append(f"🔗 [Trade](https://futures.mexc.com/exchange/{symbol})")
+
+    return self.convert_to_markdown_v2("\n".join(lines))
+```
+
+## Fair Price Alert форматирование
+
+### Формат алерта
+```python
+def format_fair_price_alert(self, symbol: str, data: AlertData) -> str:
+    """Форматирование алерта о справедливой цене."""
+    lines = []
+
+    # Заголовок
+    lines.append(f"⚠️ *Fair Price Alert* | {data.color} SHORT")
+    lines.append("")
+
+    # Биржа
+    lines.append(f"🏦 *{data.exchange}*")
+    lines.append("")
+
+    # Тикер и ссылка
+    lines.append(f"📊 *Ticker:* [{data.symbol}]({data.trade_url})")
+    lines.append(f"📋 *Copy:* `{data.symbol}`")
+    lines.append(f"💰 *Last Price:* `{data.last_price}`")
+    lines.append(f"🎯 *Fair Price:* `{data.fair_price}`")
+    lines.append(f"📈 *Spread:* `{data.spread}`")
+    lines.append(f"📊 *Volume 24h:* `{data.volume}`")
+    lines.append(f"🏛️ *Index Pool:* {data.index_info}")
+    lines.append(f"🌐 *DEX Networks:* {data.dex_links}")
+    lines.append(f"💰 *Buy Limit:* `{data.buy_limit}`")
+    lines.append("")
+
+    # Время и TTL
+    lines.append(f"🕐 `{data.timestamp}` | TTL: 1h")
+
+    return self.convert_to_markdown_v2("\n".join(lines))
+```
+
+## Отправка алертов
+
+### Telegram alert service
+```python
+class TelegramAlertService:
+    """Сервис для отправки алертов в Telegram."""
+
+    def __init__(self, bot_token: str, chat_id: str):
+        self.bot_token = bot_token
+        self.chat_id = chat_id
+        self.bot = Bot(token=bot_token)
+
+    async def send_alert(self, message: str) -> bool:
+        """Отправка алерта."""
+        try:
+            await self.bot.send_message(
+                chat_id=self.chat_id,
+                text=message,
+                parse_mode=ParseMode.MARKDOWN_V2,
+                disable_web_page_preview=True
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send alert: {e}")
+            return False
+
+    async def close(self) -> None:
+        """Закрытие соединения."""
+        await self.bot.session.close()
+```
+
+## TTL система (Time To Live)
+
+### Управление кулдауном алертов
+```python
+class AlertCooldownManager:
+    """Менеджер кулдауна алертов."""
+
+    def __init__(self, ttl_hours: int = 1):
+        self.ttl_seconds = ttl_hours * 3600
+        self.last_alerts: Dict[str, float] = {}  # symbol -> timestamp
+
+    def can_send_alert(self, symbol: str) -> bool:
+        """Проверка возможности отправки алерта."""
+        last_time = self.last_alerts.get(symbol, 0)
+        current_time = time.time()
+
+        if current_time - last_time >= self.ttl_seconds:
+            self.last_alerts[symbol] = current_time
+            return True
+
+        return False
+
+    def cleanup_old_alerts(self) -> None:
+        """Очистка старых записей."""
+        current_time = time.time()
+        expired_symbols = [
+            symbol for symbol, timestamp in self.last_alerts.items()
+            if current_time - timestamp > self.ttl_seconds * 2  # Удаляем через 2 TTL
+        ]
+
+        for symbol in expired_symbols:
+            del self.last_alerts[symbol]
+```
