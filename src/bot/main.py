@@ -17,7 +17,8 @@ from infrastructure.gate.client import GateClient
 from src.application.services.mexc_info_service import MexcInfoService
 from src.application.services.gate_info_service import GateInfoService
 from src.application.services.cex_aggregator_service import CexAggregatorService
-from src.application.services.fair_price_alert_service import FairPriceAlertService
+from src.application.services.mexc_fair_price_alert_service import MexcFairPriceAlertService
+from src.application.services.gate_fair_price_alert_service import GateFairPriceAlertService
 
 from aiogram.enums import ChatType
 from aiogram.filters import Command
@@ -43,7 +44,8 @@ class DependencyContainer:
         self._gate_service: GateInfoService | None = None
         self._cex_aggregator_service: CexAggregatorService | None = None
         self._markdown_service: MarkdownService | None = None
-        self._fair_price_alert_service: FairPriceAlertService | None = None
+        self._mexc_fair_price_alert_service: MexcFairPriceAlertService | None = None
+        self._gate_fair_price_alert_service: GateFairPriceAlertService | None = None
 
     async def start(self) -> None:
         """Initialize all dependencies."""
@@ -84,8 +86,9 @@ class DependencyContainer:
             self._mexc_client, self._gate_client, self._http_client, self._markdown_service
         )
 
-        # Fair price alert service
-        self._fair_price_alert_service = FairPriceAlertService(self.config, self._markdown_service, self._mexc_client)
+        # Fair price alert services
+        self._mexc_fair_price_alert_service = MexcFairPriceAlertService(self.config, self._markdown_service, self._mexc_client)
+        self._gate_fair_price_alert_service = GateFairPriceAlertService(self.config, self._markdown_service, self._gate_client)
 
         logger.info("Dependency container initialized successfully")
 
@@ -93,8 +96,11 @@ class DependencyContainer:
         """Clean up all dependencies."""
         logger.info("Closing dependency container...")
 
-        if self._fair_price_alert_service:
-            await self._fair_price_alert_service.stop()
+        if self._mexc_fair_price_alert_service:
+            await self._mexc_fair_price_alert_service.stop()
+
+        if self._gate_fair_price_alert_service:
+            await self._gate_fair_price_alert_service.stop()
 
         if self._http_client:
             await self._http_client.close()
@@ -133,11 +139,18 @@ class DependencyContainer:
         return self._markdown_service
 
     @property
-    def fair_price_alert_service(self) -> FairPriceAlertService:
-        """Get fair price alert service."""
-        if self._fair_price_alert_service is None:
+    def mexc_fair_price_alert_service(self) -> MexcFairPriceAlertService:
+        """Get MEXC fair price alert service."""
+        if self._mexc_fair_price_alert_service is None:
             raise RuntimeError("Dependency container not initialized")
-        return self._fair_price_alert_service
+        return self._mexc_fair_price_alert_service
+
+    @property
+    def gate_fair_price_alert_service(self) -> GateFairPriceAlertService:
+        """Get Gate.io fair price alert service."""
+        if self._gate_fair_price_alert_service is None:
+            raise RuntimeError("Dependency container not initialized")
+        return self._gate_fair_price_alert_service
 
 
 @asynccontextmanager
@@ -216,13 +229,26 @@ async def time_sync_loop(container: DependencyContainer) -> None:
 async def fair_price_monitor_loop(container: DependencyContainer) -> None:
     """Background task for fair price monitoring."""
     try:
-        # Start the fair price alert service
-        alert_service = container.fair_price_alert_service
-        if await alert_service.start():
-            logger.info("Fair price alert service started in background")
-            await alert_service.run_monitoring_loop()
+        # Start MEXC fair price alert service
+        mexc_service = container.mexc_fair_price_alert_service
+        gate_service = container.gate_fair_price_alert_service
+
+        mexc_started = await mexc_service.start()
+        gate_started = await gate_service.start()
+
+        if mexc_started or gate_started:
+            logger.info("Fair price alert services started in background")
+
+            tasks = []
+            if mexc_started:
+                tasks.append(asyncio.create_task(mexc_service.run_monitoring_loop()))
+            if gate_started:
+                tasks.append(asyncio.create_task(gate_service.run_monitoring_loop()))
+
+            if tasks:
+                await asyncio.gather(*tasks)
         else:
-            logger.error("Failed to start fair price alert service")
+            logger.error("Failed to start any fair price alert service")
     except Exception as e:
         logger.error(f"Error in fair price monitoring loop: {e}")
 

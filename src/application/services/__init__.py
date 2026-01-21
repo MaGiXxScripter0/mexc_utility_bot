@@ -1,1 +1,4 @@
 # Application services - business logic
+from .base_fair_price_alert_service import BaseFairPriceAlertService
+from .mexc_fair_price_alert_service import MexcFairPriceAlertService
+from .gate_fair_price_alert_service import GateFairPriceAlertService
