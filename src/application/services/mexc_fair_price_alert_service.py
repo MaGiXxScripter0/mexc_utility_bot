@@ -115,6 +115,20 @@ class MexcFairPriceAlertService(BaseFairPriceAlertService):
             logger.debug(f"MEXC {symbol}: Processing ticker - last: {last_price:.8f}, fair: {fair_price:.8f}")
 
             if self._should_alert(last_price, fair_price, symbol):
+                buying_limit_info = await self.get_buying_limit_info(symbol, last_price)
+
+                buying_limit_usd: Optional[float] = None
+                if isinstance(buying_limit_info, str) and buying_limit_info.startswith("$"):
+                    try:
+                        value_str = buying_limit_info[1:].replace(",", "")
+                        buying_limit_usd = float(value_str)
+                    except ValueError:
+                        buying_limit_usd = None
+
+                if buying_limit_usd is not None and buying_limit_usd < 500:
+                    logger.debug(f"MEXC {symbol}: Skipping alert due to low buy limit: {buying_limit_usd:.2f} USD")
+                    return
+
                 # Use lock to prevent duplicate alerts for the same symbol
                 async with self.alert_lock:
                     # Check if we already alerted for this symbol recently
