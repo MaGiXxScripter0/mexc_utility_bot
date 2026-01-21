@@ -206,8 +206,14 @@ class BaseFairPriceAlertService(ABC):
             dex_info = await self.get_dex_info(base_symbol)
             logger.debug(f"{self.exchange_name} {base_symbol} DEX info: {dex_info}")
 
-            # Format message with Markdown (no buying limit for parser alerts)
-            message = self._format_alert_message(symbol, last_price, fair_price, spread_str, volume_24h, alert_type, emoji, index_info, dex_info, "")
+            # Get buying limit info (only for MEXC)
+            buying_limit_info = ""
+            if self.exchange_name == "MEXC":
+                buying_limit_info = await self.get_buying_limit_info(symbol, last_price)
+                logger.debug(f"{self.exchange_name} {symbol} buying limit: {buying_limit_info}")
+
+            # Format message with Markdown
+            message = self._format_alert_message(symbol, last_price, fair_price, spread_str, volume_24h, alert_type, emoji, index_info, dex_info, buying_limit_info)
             logger.debug(f"{self.exchange_name} formatted alert message for {symbol}")
 
             markdown_v2_message = self.markdown_service.convert_to_markdown_v2(message)
@@ -241,7 +247,7 @@ class BaseFairPriceAlertService(ABC):
 
     def _format_alert_message(self, symbol: str, last_price: float, fair_price: float,
                             spread_str: str, volume_24h: float, alert_type: str, emoji: str,
-                            index_info: str, dex_info: str) -> str:
+                            index_info: str, dex_info: str, buying_limit: str) -> str:
         """Format alert message with Markdown."""
         # Escape special characters for MarkdownV2
         symbol_escaped = self._escape_symbol(symbol)
@@ -266,9 +272,13 @@ class BaseFairPriceAlertService(ABC):
 📈 **Spread:** `{spread_str}`
 📊 **Volume 24h:** `{volume_fmt}`
 🏛️ **Index Pool:** {index_info}
-🌐 **DEX Networks:** {dex_info}
+🌐 **DEX Networks:** {dex_info}"""
 
-🕐 **{timestamp}**"""
+        # Add Buy Limit only if available (MEXC only)
+        if buying_limit:
+            message += f"\n💰 **Buy Limit:** {buying_limit}"
+
+        message += f"\n\n🕐 **{timestamp}**"
 
         return message
 
