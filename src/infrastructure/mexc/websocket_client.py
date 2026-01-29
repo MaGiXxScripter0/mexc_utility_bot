@@ -132,6 +132,8 @@ class MexcWebSocketClient:
                     await self.ws.send(json.dumps(ping_msg))
                     logger.debug("Sent ping to MEXC WebSocket")
                 else:
+                    logger.warning("MEXC WebSocket not open during ping, marking disconnected")
+                    self.is_connected = False
                     break
 
                 await asyncio.sleep(15)  # Ping every 15 seconds
@@ -140,6 +142,7 @@ class MexcWebSocketClient:
                 break
             except Exception as e:
                 logger.error(f"Error in ping loop: {e}")
+                self.is_connected = False
                 break
 
     async def _message_handler(self) -> None:
@@ -147,6 +150,8 @@ class MexcWebSocketClient:
         while self.is_connected:
             try:
                 if not self.ws or self.ws.state != State.OPEN:
+                    logger.warning("MEXC WebSocket not open in message handler, marking disconnected")
+                    self.is_connected = False
                     break
 
                 message = await self.ws.recv()
@@ -174,6 +179,10 @@ class MexcWebSocketClient:
                 logger.warning("MEXC WebSocket connection closed")
                 self.is_connected = False
                 break
+            except WebSocketException as e:
+                logger.warning(f"MEXC WebSocket exception: {e}")
+                self.is_connected = False
+                break
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse WebSocket message: {e}")
                 continue
@@ -198,27 +207,20 @@ class MexcWebSocketClient:
         }
         return headers
 
-    async def reconnect(self) -> None:
-        """Reconnect to WebSocket with exponential backoff."""
+    async def reconnect(self) -> bool:
+        """Reconnect to WebSocket and restore subscriptions."""
         if self.reconnect_task and not self.reconnect_task.done():
-            return
+            return True
 
-        async def _reconnect_loop():
-            backoff = 1
-            max_backoff = 60
+        async def _reconnect_once() -> bool:
+            await self.disconnect()
+            if not await self.connect():
+                return False
+            # Re-subscribe to previous subscriptions
+            for channel, callback in self.subscriptions.items():
+                if channel == "push.tickers":
+                    await self.subscribe_tickers(callback)
+            return True
 
-            while not self.is_connected:
-                logger.info(f"Attempting to reconnect in {backoff} seconds...")
-                await asyncio.sleep(backoff)
-
-                if await self.connect():
-                    logger.info("Successfully reconnected to MEXC WebSocket")
-                    # Re-subscribe to previous subscriptions
-                    for channel, callback in self.subscriptions.items():
-                        if channel == "push.tickers":
-                            await self.subscribe_tickers(callback)
-                    break
-
-                backoff = min(backoff * 2, max_backoff)
-
-        self.reconnect_task = asyncio.create_task(_reconnect_loop())
+        self.reconnect_task = asyncio.create_task(_reconnect_once())
+        return await self.reconnect_task

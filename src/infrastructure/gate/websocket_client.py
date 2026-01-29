@@ -93,7 +93,13 @@ class GateWebSocketClient:
         logger.info("Reconnecting to Gate.io WebSocket...")
         await self.disconnect()
         await asyncio.sleep(1)
-        return await self.connect()
+        if not await self.connect():
+            return False
+        # Re-subscribe to previous subscriptions
+        callback = self.message_handlers.get("futures.tickers")
+        if callback:
+            await self.subscribe_tickers(callback)
+        return True
 
     async def subscribe_tickers(self, callback: Callable[[Dict[str, Any]], None]) -> bool:
         """Subscribe to futures ticker updates."""
